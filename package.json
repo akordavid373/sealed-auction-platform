@@ -1,7 +1,7 @@
 {
-  "name": "sealed-bid-auction",
+  "name": "stellar-sealed-bid-auction",
   "version": "1.0.0",
-  "description": "Private-Input Sealed-Bid Auction System with Stellar Blockchain Integration",
+  "description": "Private-Input Sealed-Bid Auction System on Stellar Blockchain",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -32,7 +32,7 @@
     "@types/node": "^20.0.0",
     "soroban-cli": "^20.0.0"
   },
-  "keywords": ["auction", "sealed-bid", "private", "secure", "blockchain", "stellar", "smart-contracts", "soroban"],
+  "keywords": ["auction", "sealed-bid", "private", "secure", "blockchain", "stellar", "smart-contracts", "soroban", "rust"],
   "author": "Cascade AI",
   "license": "MIT"
 }
