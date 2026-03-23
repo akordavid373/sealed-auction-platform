@@ -9,13 +9,51 @@
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        :root {
+            /* Light theme colors */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #e2e8f0;
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+            --text-tertiary: #718096;
+            --border-color: #e2e8f0;
+            --glass-bg: rgba(255, 255, 255, 0.8);
+            --glass-border: rgba(255, 255, 255, 0.3);
+            --gradient-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --stellar-gradient: linear-gradient(135deg, #f7fafc 0%, #edf2f7 50%, #e2e8f0 100%);
+            --button-primary: #667eea;
+            --button-primary-hover: #5a67d8;
+            --button-secondary: #718096;
+            --button-secondary-hover: #4a5568;
+        }
+
+        [data-theme="dark"] {
+            /* Dark theme colors */
+            --bg-primary: #1a202c;
+            --bg-secondary: #2d3748;
+            --bg-tertiary: #4a5568;
+            --text-primary: #ffffff;
+            --text-secondary: #e2e8f0;
+            --text-tertiary: #a0aec0;
+            --border-color: #4a5568;
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --gradient-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --stellar-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            --button-primary: #9f7aea;
+            --button-primary-hover: #805ad5;
+            --button-secondary: #4a5568;
+            --button-secondary-hover: #2d3748;
+        }
+
         .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--gradient-bg);
         }
         .glass-effect {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--glass-bg);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid var(--glass-border);
         }
         .animate-pulse-slow {
             animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -28,7 +66,200 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .stellar-gradient {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            background: var(--stellar-gradient);
+        }
+        
+        /* Loading spinner styles */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        .spinner-lg {
+            width: 40px;
+            height: 40px;
+            border-width: 4px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Skeleton loader styles */
+        .skeleton {
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.1) 25%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.1) 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+        
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        
+        .skeleton-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 24px;
+        }
+        
+        .skeleton-text {
+            height: 16px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        
+        .skeleton-text.title {
+            height: 24px;
+            width: 60%;
+        }
+        
+        .skeleton-text.large {
+            height: 20px;
+            width: 80%;
+        }
+        
+        .skeleton-text.small {
+            height: 14px;
+            width: 40%;
+        }
+        
+        .skeleton-button {
+            height: 40px;
+            border-radius: 8px;
+            width: 100%;
+            margin-top: 16px;
+        }
+        
+        /* Loading overlay styles */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        
+        /* Theme toggle styles */
+        .theme-toggle {
+            position: relative;
+            width: 60px;
+            height: 30px;
+            background: var(--button-secondary);
+            border-radius: 15px;
+            border: 2px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .theme-toggle:hover {
+            background: var(--button-secondary-hover);
+        }
+
+        .theme-toggle-slider {
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        [data-theme="dark"] .theme-toggle-slider {
+            transform: translateX(30px);
+        }
+
+        .theme-toggle-slider i {
+            font-size: 12px;
+            color: var(--text-primary);
+        }
+
+        /* Form input styles */
+        .form-input {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            color: var(--text-primary);
+        }
+
+        .form-input:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px var(--button-primary);
+        }
+
+        .btn-primary {
+            background: var(--button-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--button-primary-hover);
+        }
+
+        .btn-secondary {
+            background: var(--button-secondary);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: var(--button-secondary-hover);
+        }
+
+        .text-primary {
+            color: var(--text-primary);
+        }
+
+        .text-secondary {
+            color: var(--text-secondary);
+        }
+
+        .text-secondary:hover {
+            color: var(--text-primary);
+        }
+        
+        .loading-content {
+            text-align: center;
+            color: white;
+        }
+        
+        .loading-content .spinner {
+            margin: 0 auto 16px;
+        }
+        
+        /* Button loading state */
+        .btn-loading {
+            position: relative;
+            color: transparent !important;
+            pointer-events: none;
+        }
+        
+        .btn-loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 16px;
+            height: 16px;
+            margin: -8px 0 0 -8px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
         }
         
         /* Validation styles */
@@ -116,7 +347,7 @@
         }
     </style>
 </head>
-<body class="stellar-gradient min-h-screen text-white">
+<body class="stellar-gradient min-h-screen" style="color: var(--text-primary);">
     <!-- Header -->
     <header class="glass-effect shadow-lg">
         <div class="container mx-auto px-4 py-4">
@@ -127,11 +358,16 @@
                     <span class="bg-purple-600 px-2 py-1 rounded text-xs">Blockchain</span>
                 </div>
                 <div class="flex items-center space-x-4">
+                    <div class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                        <div class="theme-toggle-slider">
+                            <i class="fas fa-sun" id="themeIcon"></i>
+                        </div>
+                    </div>
                     <div id="stellarWalletInfo" class="hidden">
-                        <span id="walletAddress" class="text-sm text-gray-300"></span>
+                        <span id="walletAddress" class="text-sm text-secondary"></span>
                         <span id="walletBalance" class="text-sm font-semibold ml-2"></span>
                     </div>
-                    <button id="stellarWalletBtn" onclick="toggleStellarWallet()" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg transition">
+                    <button id="stellarWalletBtn" onclick="toggleStellarWallet()" class="px-4 py-2 rounded-lg transition btn-primary">
                         <i class="fas fa-wallet mr-2"></i>Connect Wallet
                     </button>
                 </div>
@@ -147,23 +383,23 @@
                 <h2 id="authTitle" class="text-2xl font-bold mb-6">Login</h2>
                 <form id="authForm" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium mb-2">Username</label>
-                        <input type="text" id="username" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required>
+                        <label class="block text-sm font-medium mb-2 text-primary">Username</label>
+                        <input type="text" id="username" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-2">Password</label>
-                        <input type="password" id="password" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required>
+                        <label class="block text-sm font-medium mb-2 text-primary">Password</label>
+                        <input type="password" id="password" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required>
                     </div>
                     <div class="flex space-x-4">
-                        <button type="submit" class="flex-1 bg-purple-600 hover:bg-purple-700 py-2 rounded-lg transition">
+                        <button type="submit" class="flex-1 py-2 rounded-lg transition btn-primary">
                             <span id="authSubmitText">Login</span>
                         </button>
-                        <button type="button" onclick="toggleAuthMode()" class="flex-1 bg-purple-500 hover:bg-purple-600 py-2 rounded-lg transition">
+                        <button type="button" onclick="toggleAuthMode()" class="flex-1 py-2 rounded-lg transition btn-secondary">
                             <span id="authModeText">Register</span>
                         </button>
                     </div>
                 </form>
-                <button onclick="closeAuthModal()" class="mt-4 text-gray-300 hover:text-white">
+                <button onclick="closeAuthModal()" class="mt-4 transition text-secondary">
                     <i class="fas fa-times mr-2"></i>Close
                 </button>
             </div>
@@ -172,13 +408,13 @@
         <!-- Navigation Tabs -->
         <div class="glass-effect rounded-xl p-1 mb-8">
             <div class="flex space-x-1">
-                <button onclick="showTab('auctions')" id="auctionsTab" class="flex-1 py-3 px-4 rounded-lg bg-purple-600 transition">
+                <button onclick="showTab('auctions')" id="auctionsTab" class="flex-1 py-3 px-4 rounded-lg transition btn-primary">
                     <i class="fas fa-list mr-2"></i>Auctions
                 </button>
-                <button onclick="showTab('create')" id="createTab" class="flex-1 py-3 px-4 rounded-lg hover:bg-purple-500 transition">
+                <button onclick="showTab('create')" id="createTab" class="flex-1 py-3 px-4 rounded-lg transition btn-secondary">
                     <i class="fas fa-plus mr-2"></i>Create Auction
                 </button>
-                <button onclick="showTab('myBids')" id="myBidsTab" class="flex-1 py-3 px-4 rounded-lg hover:bg-purple-500 transition">
+                <button onclick="showTab('myBids')" id="myBidsTab" class="flex-1 py-3 px-4 rounded-lg transition btn-secondary">
                     <i class="fas fa-coins mr-2"></i>My Bids
                 </button>
             </div>
@@ -197,24 +433,24 @@
                 <h2 class="text-2xl font-bold mb-6">Create New Auction</h2>
                 <form id="createAuctionForm" class="space-y-6">
                     <div>
-                        <label class="block text-sm font-medium mb-2">Title</label>
-                        <input type="text" id="auctionTitle" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required>
+                        <label class="block text-sm font-medium mb-2 text-primary">Title</label>
+                        <input type="text" id="auctionTitle" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-2">Description</label>
-                        <textarea id="auctionDescription" rows="4" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required></textarea>
+                        <label class="block text-sm font-medium mb-2 text-primary">Description</label>
+                        <textarea id="auctionDescription" rows="4" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required></textarea>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium mb-2">Starting Bid ($)</label>
-                            <input type="number" id="startingBid" min="0" step="0.01" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required>
+                            <label class="block text-sm font-medium mb-2 text-primary">Starting Bid ($)</label>
+                            <input type="number" id="startingBid" min="0" step="0.01" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium mb-2">End Time</label>
-                            <input type="datetime-local" id="endTime" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required>
+                            <label class="block text-sm font-medium mb-2 text-primary">End Time</label>
+                            <input type="datetime-local" id="endTime" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required>
                         </div>
                     </div>
-                    <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-lg transition font-semibold">
+                    <button type="submit" class="w-full py-3 rounded-lg transition font-semibold btn-primary">
                         <i class="fas fa-gavel mr-2"></i>Create Auction
                     </button>
                 </form>
@@ -224,7 +460,7 @@
         <!-- My Bids Tab -->
         <div id="myBidsContent" class="tab-content hidden">
             <div class="glass-effect rounded-xl p-8">
-                <h2 class="text-2xl font-bold mb-6">Your Bids</h2>
+                <h2 class="text-2xl font-bold mb-6 text-primary">Your Bids</h2>
                 <div id="myBidsList" class="space-y-4">
                     <!-- User's bids will be displayed here -->
                 </div>
@@ -237,19 +473,19 @@
                 <h2 class="text-2xl font-bold mb-6">Place Sealed Bid</h2>
                 <form id="bidForm" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium mb-2">Bid Amount ($)</label>
-                        <input type="number" id="bidAmount" min="0" step="0.01" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required>
+                        <label class="block text-sm font-medium mb-2 text-primary">Bid Amount ($)</label>
+                        <input type="number" id="bidAmount" min="0" step="0.01" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-2">Secret Key</label>
-                        <input type="password" id="secretKey" class="w-full px-4 py-2 rounded-lg bg-white bg-opacity-20 border border-white border-opacity-30 focus:outline-none focus:ring-2 focus:ring-purple-400" required>
-                        <p class="text-xs text-gray-300 mt-1">Save this key securely. You'll need it to verify your bid later.</p>
+                        <label class="block text-sm font-medium mb-2 text-primary">Secret Key</label>
+                        <input type="password" id="secretKey" class="w-full px-4 py-2 rounded-lg border form-input focus:outline-none focus:ring-2" required>
+                        <p class="text-xs mt-1 text-secondary">Save this key securely. You'll need it to verify your bid later.</p>
                     </div>
                     <div class="flex space-x-4">
-                        <button type="submit" class="flex-1 bg-purple-600 hover:bg-purple-700 py-2 rounded-lg transition">
+                        <button type="submit" class="flex-1 py-2 rounded-lg transition btn-primary">
                             <i class="fas fa-lock mr-2"></i>Place Bid
                         </button>
-                        <button type="button" onclick="closeBidModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 py-2 rounded-lg transition">
+                        <button type="button" onclick="closeBidModal()" class="flex-1 py-2 rounded-lg transition btn-secondary">
                             Cancel
                         </button>
                     </div>

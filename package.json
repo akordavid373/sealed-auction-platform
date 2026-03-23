@@ -29,8 +29,7 @@
   "devDependencies": {
     "nodemon": "^3.0.1",
     "jest": "^29.6.2",
-    "@types/node": "^20.0.0",
-    "soroban-cli": "^20.0.0"
+    "@types/node": "^20.0.0"
   },
   "keywords": ["auction", "sealed-bid", "private", "secure", "blockchain", "stellar", "smart-contracts", "soroban", "rust"],
   "author": "Cascade AI",
