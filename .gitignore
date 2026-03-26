@@ -167,3 +167,6 @@ Cargo.lock
 # Soroban
 *.wasm
 soroban/
+
+# Local backups
+backups/

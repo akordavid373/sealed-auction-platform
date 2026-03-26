@@ -1,6 +1,8 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const helmet = require('helmet');
@@ -32,10 +34,13 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Backup directory
+const backupDir = path.join(__dirname, 'backups');
+
 // In-memory storage (in production, use a proper database)
-const auctions = new Map();
-const bids = new Map();
-const users = new Map();
+let auctions = new Map();
+let bids = new Map();
+let users = new Map();
 
 // Auction class
 class Auction {
@@ -127,6 +132,72 @@ function decryptBid(encryptedData, secretKey) {
   
   return parseFloat(decrypted);
 }
+
+// --- Backup and Restore ---
+function backupData() {
+  try {
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+
+    fs.writeFileSync(path.join(backupDir, 'auctions.json'), JSON.stringify(Array.from(auctions.entries()), null, 2));
+    fs.writeFileSync(path.join(backupDir, 'bids.json'), JSON.stringify(Array.from(bids.entries()), null, 2));
+    fs.writeFileSync(path.join(backupDir, 'users.json'), JSON.stringify(Array.from(users.entries()), null, 2));
+    console.log(`[${new Date().toISOString()}] Data backup successful.`);
+  } catch (error) {
+    console.error('Data backup failed:', error);
+  }
+}
+
+function restoreData() {
+  try {
+    const auctionsPath = path.join(backupDir, 'auctions.json');
+    if (fs.existsSync(auctionsPath)) {
+      const data = JSON.parse(fs.readFileSync(auctionsPath));
+      const restoredAuctions = data.map(([id, plainAuction]) => {
+        const auction = Object.assign(new Auction(), plainAuction);
+        auction.endTime = new Date(auction.endTime);
+        auction.createdAt = new Date(auction.createdAt);
+        auction.bids = auction.bids.map(plainBid => Object.assign(new Bid(), plainBid));
+        return [id, auction];
+      });
+      auctions = new Map(restoredAuctions);
+      console.log(`Restored ${auctions.size} auctions from backup.`);
+    }
+
+    const bidsPath = path.join(backupDir, 'bids.json');
+    if (fs.existsSync(bidsPath)) {
+      const data = JSON.parse(fs.readFileSync(bidsPath));
+      const restoredBids = data.map(([id, plainBid]) => {
+        const bid = Object.assign(new Bid(), plainBid);
+        bid.timestamp = new Date(bid.timestamp);
+        return [id, bid];
+      });
+      bids = new Map(restoredBids);
+      console.log(`Restored ${bids.size} bids from backup.`);
+    }
+
+    const usersPath = path.join(backupDir, 'users.json');
+    if (fs.existsSync(usersPath)) {
+      const data = JSON.parse(fs.readFileSync(usersPath));
+      const restoredUsers = data.map(([id, plainUser]) => {
+        const user = Object.assign(new User(), plainUser);
+        user.createdAt = new Date(user.createdAt);
+        return [id, user];
+      });
+      users = new Map(restoredUsers);
+      console.log(`Restored ${users.size} users from backup.`);
+    }
+  } catch (error) {
+    console.error('Failed to restore data from backup. Starting with a clean state.', error);
+    auctions = new Map();
+    bids = new Map();
+    users = new Map();
+  }
+}
+
+// Restore data on startup
+restoreData();
 
 // Routes
 app.get('/api/auctions', (req, res) => {
@@ -317,6 +388,11 @@ setInterval(() => {
     }
   }
 }, 60000); // Check every minute
+
+// Schedule regular backups
+const BACKUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+setInterval(backupData, BACKUP_INTERVAL);
+console.log(`Automated backup scheduled to run every ${BACKUP_INTERVAL / 60000} minutes.`);
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
