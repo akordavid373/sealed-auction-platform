@@ -134,15 +134,18 @@ function decryptBid(encryptedData, secretKey) {
 }
 
 // --- Backup and Restore ---
-function backupData() {
+async function backupData() {
   try {
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
     }
 
-    fs.writeFileSync(path.join(backupDir, 'auctions.json'), JSON.stringify(Array.from(auctions.entries()), null, 2));
-    fs.writeFileSync(path.join(backupDir, 'bids.json'), JSON.stringify(Array.from(bids.entries()), null, 2));
-    fs.writeFileSync(path.join(backupDir, 'users.json'), JSON.stringify(Array.from(users.entries()), null, 2));
+    await Promise.all([
+      fs.promises.writeFile(path.join(backupDir, 'auctions.json'), JSON.stringify(Array.from(auctions.entries()), null, 2)),
+      fs.promises.writeFile(path.join(backupDir, 'bids.json'), JSON.stringify(Array.from(bids.entries()), null, 2)),
+      fs.promises.writeFile(path.join(backupDir, 'users.json'), JSON.stringify(Array.from(users.entries()), null, 2))
+    ]);
+
     console.log(`[${new Date().toISOString()}] Data backup successful.`);
   } catch (error) {
     console.error('Data backup failed:', error);
