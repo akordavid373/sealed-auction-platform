@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', function() {
     loadAuctions();
     setupEventListeners();
     setupSocketListeners();
+    checkOAuthStatus();
+    checkOAuthCallback();
 });
 
 // Socket.io listeners
@@ -372,4 +374,37 @@ function showNotification(message, type = 'info') {
     setTimeout(() => {
         notification.remove();
     }, 3000);
+}
+
+// OAuth Functions
+async function checkOAuthStatus() {
+    try {
+        const response = await fetch('/api/auth/status');
+        const data = await response.json();
+        
+        if (data.google) {
+            document.getElementById('googleLoginBtn').classList.remove('hidden');
+        }
+        if (data.github) {
+            document.getElementById('githubLoginBtn').classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Error checking OAuth status:', error);
+    }
+}
+
+function checkOAuthCallback() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const username = urlParams.get('username');
+    
+    if (token && username) {
+        currentUser = { userId: username, username: username, token: token };
+        localStorage.setItem('authToken', token);
+        updateUserDisplay();
+        showNotification('Login successful!', 'success');
+        
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
 }
