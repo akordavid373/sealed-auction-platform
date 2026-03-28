@@ -72,6 +72,8 @@ const HAS_REVEALED: Symbol = symbol_short!("HAS_R");
 const REENTRANCY_GUARD: Symbol = symbol_short!("NO_LK");
 const AUCTION_DATA: Symbol = symbol_short!("A_DAT");
 const BID_DATA: Symbol = symbol_short!("B_DAT");
+const ADMIN: Symbol = symbol_short!("ADMIN");
+const INITIALIZED: Symbol = symbol_short!("INIT");
 
 #[contract]
 pub struct SealedBidAuction;
@@ -92,6 +94,32 @@ impl SealedBidAuction {
 
     fn remove_lock(env: &Env) {
         env.storage().instance().set(&REENTRANCY_GUARD, &false);
+    }
+
+    fn check_admin(env: &Env) {
+        let admin: Address = env.storage().instance().get(&ADMIN).unwrap_or_else(|| panic!("Admin not set"));
+        admin.require_auth();
+    }
+
+    // Initialize the contract with an admin
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().instance().has(&INITIALIZED) {
+            panic!("Already initialized");
+        }
+        env.storage().instance().set(&ADMIN, &admin);
+        env.storage().instance().set(&INITIALIZED, &true);
+    }
+
+    // Upgrade the contract wasm
+    pub fn upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        Self::check_admin(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    // Set new admin
+    pub fn set_admin(env: Env, new_admin: Address) {
+        Self::check_admin(&env);
+        env.storage().instance().set(&ADMIN, &new_admin);
     }
 
     // Optimized storage helper functions

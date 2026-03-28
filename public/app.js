@@ -125,7 +125,7 @@ function handleAuth(e) {
     const formData = new FormData(authForm);
     const isLogin = authTitle.textContent === "Login";
     
-    const endpoint = isLogin ? "/api/users/login" : "/api/users/register";
+    const endpoint = isLogin ? "/api/auth/login" : "/api/users";
     const payload = {
         username: formData.get("username"),
         password: formData.get("password")
@@ -424,12 +424,16 @@ function handlePlaceBid(e) {
         secretKey: formData.get("secretKey")
     };
     
-    fetch("/api/bids", {
+    fetch(`/api/auctions/${auctionId}/bids`, {
         method: "POST",
         headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${currentUser.token}`
         },
-        body: JSON.stringify(bidData)
+        body: JSON.stringify({
+            amount: parseFloat(formData.get("amount")),
+            secretKey: formData.get("secretKey")
+        })
     })
     .then(response => response.json())
     .then(data => {

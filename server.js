@@ -297,6 +297,69 @@ function encryptBid(bidAmount, secretKey) {
   };
 }
 
+// --- Content Negotiation Helpers ---
+function toXML(obj, root = 'response') {
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<${root}>\n`;
+  const processValue = (val, level) => {
+    let s = '';
+    const indent = '  '.repeat(level);
+    if (Array.isArray(val)) {
+      val.forEach(item => {
+        s += `${indent}<item>\n${processValue(item, level + 1)}${indent}</item>\n`;
+      });
+    } else if (typeof val === 'object' && val !== null) {
+      for (const [k, v] of Object.entries(val)) {
+        s += `${indent}<${k}>${processValue(v, level + 1).trim()}</${k}>\n`;
+      }
+    } else {
+      s += `${val}`;
+    }
+    return s;
+  };
+  xml += processValue(obj, 1);
+  xml += `</${root}>`;
+  return xml;
+}
+
+function toYAML(obj, indent = 0) {
+  let yaml = '';
+  const spaces = ' '.repeat(indent);
+  for (const [key, value] of Object.entries(obj)) {
+    if (Array.isArray(value)) {
+      yaml += `${spaces}${key}:\n`;
+      value.forEach(item => {
+        yaml += `${spaces}  - `;
+        if (typeof item === 'object' && item !== null) {
+          yaml += toYAML(item, indent + 4).trimStart();
+        } else {
+          yaml += `${item}\n`;
+        }
+      });
+    } else if (typeof value === 'object' && value !== null) {
+      yaml += `${spaces}${key}:\n${toYAML(value, indent + 2)}`;
+    } else {
+      yaml += `${spaces}${key}: ${value}\n`;
+    }
+  }
+  return yaml;
+}
+
+// Content negotiation middleware
+app.use((req, res, next) => {
+  res.sendData = (data, root = 'response') => {
+    const accept = req.headers.accept || '';
+    if (accept.includes('application/xml')) {
+      res.type('application/xml');
+      return res.send(toXML(data, root));
+    } else if (accept.includes('text/yaml') || accept.includes('application/yaml')) {
+      res.type('text/yaml');
+      return res.send(toYAML(data));
+    }
+    res.json(data);
+  };
+  next();
+});
+
 function decryptBid(encryptedData, secretKey) {
   const algorithm = 'aes-256-cbc';
   const key = crypto.scryptSync(secretKey, 'salt', 32);
@@ -405,13 +468,13 @@ app.get('/api/auctions',
       creator: auction.creator_id
     }));
     
-    res.json({
+    res.sendData({
       auctions: auctionList,
       pagination: result.pagination
-    });
+    }, 'auctionsResponse');
   } catch (error) {
     console.error('Error fetching auctions:', error);
-    res.status(500).json({ error: 'Failed to fetch auctions' });
+    res.status(500).sendData({ error: 'Failed to fetch auctions' });
   }
 });
 
@@ -455,10 +518,10 @@ app.post('/api/auctions',
     auctions.set(auctionId, auction);
     
     io.emit('auctionCreated', auction);
-    res.status(201).json(auction);
+    res.status(201).sendData(auction, 'auctionCreated');
   } catch (error) {
     console.error('Auction creation failed:', error);
-    res.status(500).json({ error: 'Failed to create auction' });
+    res.status(500).sendData({ error: 'Failed to create auction' });
   }
 });
 
@@ -477,7 +540,7 @@ app.get('/api/auctions/:id',
       return res.status(404).json({ error: 'Auction not found' });
     }
 
-    res.json({
+    res.sendData({
       id: auctionDb.id,
       title: auctionDb.title,
       description: auctionDb.description,
@@ -487,14 +550,14 @@ app.get('/api/auctions/:id',
       status: auctionDb.status,
       bidCount: db.getBidCount(auctionId),
       creator: auctionDb.creator_id
-    });
+    }, 'auctionDetails');
   } catch (error) {
     console.error('Error fetching auction:', error);
-    res.status(500).json({ error: 'Failed to fetch auction' });
+    res.status(500).sendData({ error: 'Failed to fetch auction' });
   }
 });
 
-app.post('/api/auctions/:id/bid', 
+app.post('/api/auctions/:id/bids', 
   authenticateToken,
   checkAccountLockout,
   bidLimiter,
@@ -514,17 +577,17 @@ app.post('/api/auctions/:id/bid',
     
     const auctionDb = db.getAuction(auctionId);
     if (!auctionDb) {
-      return res.status(404).json({ error: 'Auction not found' });
+      return res.status(404).sendData({ error: 'Auction not found' });
     }
 
     if (auctionDb.status !== 'active') {
-      return res.status(400).json({ error: 'Auction is not active' });
+      return res.status(400).sendData({ error: 'Auction is not active' });
     }
 
     // Validate bid amount against current highest bid
     const minimumBid = Math.max(auctionDb.starting_bid, auctionDb.current_highest_bid || auctionDb.starting_bid);
     if (amount <= minimumBid) {
-      return res.status(400).json({ error: `Bid must be higher than ${minimumBid}` });
+      return res.status(400).sendData({ error: `Bid must be higher than ${minimumBid}` });
     }
 
     const encryptedBid = encryptBid(amount, secretKey);
@@ -550,14 +613,25 @@ app.post('/api/auctions/:id/bid',
     }
     
     io.emit('bidPlaced', { auctionId, bidCount: auction ? auction.bids.length : 1 });
-    res.status(201).json({ message: 'Bid placed successfully', bidId });
+    res.status(201).sendData({ message: 'Bid placed successfully', bidId }, 'bidPlaced');
   } catch (error) {
     console.error('Bid placement failed:', error);
-    res.status(500).json({ error: 'Failed to place bid' });
+    res.status(500).sendData({ error: 'Failed to place bid' });
   }
 });
 
-app.post('/api/auctions/:id/close', 
+// Flat bid endpoint (RESTful alternative)
+app.post('/api/bids', authenticateToken, (req, res) => {
+  if (req.body.auctionId) {
+    // Redirect to the hierarchical endpoint logic internally
+    res.redirect(307, `/api/auctions/${req.body.auctionId}/bids`);
+  } else {
+    res.status(400).sendData({ error: 'auctionId is required in the body' });
+  }
+});
+
+// Use PATCH for updating auction state (RESTful)
+app.patch('/api/auctions/:id', 
   authenticateToken,
   bidLimiter,
   validateSchema('auctionIdParam'),
@@ -567,14 +641,24 @@ app.post('/api/auctions/:id/close',
   (req, res) => {
   try {
     const auctionId = req.sanitizedParams.id;
+    const { status } = req.body;
+
+    if (status !== 'closed') {
+      return res.status(400).sendData({ error: 'Only closing auctions is currently supported via this endpoint' });
+    }
     
     const auctionDb = db.getAuction(auctionId);
     if (!auctionDb) {
-      return res.status(404).json({ error: 'Auction not found' });
+      return res.status(404).sendData({ error: 'Auction not found' });
     }
 
     if (auctionDb.status === 'closed') {
-      return res.status(400).json({ error: 'Auction is already closed' });
+      return res.status(400).sendData({ error: 'Auction is already closed' });
+    }
+
+    // Permission check: only creator can close
+    if (auctionDb.creator_id !== req.user.userId) {
+      return res.status(403).sendData({ error: 'Only the creator can close this auction' });
     }
 
     // Get all bids and find winner
@@ -597,12 +681,26 @@ app.post('/api/auctions/:id/close',
       auction.close();
     }
     
-    io.emit('auctionClosed', { ...auctionDb, status: 'closed', winner: winnerId, winningBid: winningBidId });
-    res.json({ ...auctionDb, status: 'closed', winner: winnerId, winningBid: winningBidId });
+    const responseData = { ...auctionDb, status: 'closed', winner: winnerId, winningBid: winningBidId };
+    io.emit('auctionClosed', responseData);
+    res.sendData(responseData, 'auctionClosed');
   } catch (error) {
     console.error('Error closing auction:', error);
-    res.status(500).json({ error: 'Failed to close auction' });
+    res.status(500).sendData({ error: 'Failed to close auction' });
   }
+});
+
+// Alias for pluralize bid
+app.post('/api/auctions/:id/bid', (req, res) => {
+  res.redirect(307, `/api/auctions/${req.params.id}/bids`);
+});
+
+// Legacy close endpoint for backward compatibility (Optional, but let's keep it until app.js is updated)
+app.post('/api/auctions/:id/close', authenticateToken, (req, res) => {
+  // Redirect to the new PATCH endpoint logic internally
+  req.body.status = 'closed';
+  // Note: Standard recommendation is to use the new endpoint directly
+  res.redirect(307, `/api/auctions/${req.params.id}`); 
 });
 
 app.post('/api/users/register', 
@@ -626,18 +724,31 @@ app.post('/api/users/register',
     // Create user in database
     db.createUser(userId, username, password);
     
-    res.status(201).json({ 
+    res.status(201).sendData({ 
       userId, 
       username,
       message: 'User registered successfully'
-    });
+    }, 'userRegistered');
   } catch (error) {
     console.error('Error registering user:', error);
-    res.status(500).json({ error: 'Failed to register user' });
+    res.status(500).sendData({ error: 'Failed to register user' });
   }
 });
 
-app.post('/api/users/login', 
+// RESTful user registration
+app.post('/api/users', 
+  authLimiter,
+  validateSchema('registerUser'),
+  validateRequest.body({
+    username: { type: 'username', required: true },
+    password: { type: 'password', required: true }
+  }),
+  async (req, res) => {
+    // Re-use logic for registration
+    res.redirect(307, '/api/users/register');
+});
+
+app.post('/api/auth/login', 
   authLimiter,
   validateSchema('loginUser'),
   validateRequest.body({
@@ -648,64 +759,58 @@ app.post('/api/users/login',
   try {
     const { username, password } = req.sanitizedBody;
     
-    // Check if account is locked before proceeding
     if (db.isAccountLocked(username)) {
       const user = db.getUserByUsername(username);
       const lockedUntil = user ? new Date(user.locked_until) : null;
-      return res.status(423).json({ 
+      return res.status(423).sendData({ 
         error: 'Account is temporarily locked due to too many failed login attempts',
         lockedUntil: lockedUntil ? lockedUntil.toISOString() : null
       });
     }
     
-    // Get user from database
     const user = db.getUserByUsername(username);
     if (!user) {
-      // Don't reveal that user doesn't exist for security
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).sendData({ error: 'Invalid credentials' });
     }
 
     const isValid = await bcrypt.compare(password, user.hashed_password);
     if (!isValid) {
-      // Increment failed login attempts
       db.incrementFailedLoginAttempts(username);
-      
-      // Check if this attempt should lock the account
       const updatedUser = db.getUserByUsername(username);
       const MAX_FAILED_ATTEMPTS = 5;
       
       if (updatedUser && updatedUser.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
-        db.lockAccount(username, 30); // Lock for 30 minutes
-        console.warn(`[SECURITY] Account locked for user: ${username} after ${MAX_FAILED_ATTEMPTS} failed attempts`);
-        return res.status(423).json({ 
+        db.lockAccount(username, 30);
+        return res.status(423).sendData({ 
           error: 'Account has been locked due to too many failed login attempts',
           lockedUntil: new Date(Date.now() + 30 * 60 * 1000).toISOString()
         });
       }
       
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).sendData({ error: 'Invalid credentials' });
     }
 
-    // Reset failed login attempts on successful login
     db.resetFailedLoginAttempts(username);
-
-    // Generate JWT token
     const token = generateToken(user);
     
-    res.json({ 
+    res.sendData({ 
       userId: user.id, 
       username: user.username,
       token: token,
       expiresIn: '24h'
-    });
+    }, 'loginResponse');
   } catch (error) {
     console.error('Error logging in user:', error);
-    res.status(500).json({ error: 'Failed to login' });
+    res.status(500).sendData({ error: 'Failed to login' });
   }
 });
 
-// New logout endpoint
-app.post('/api/users/logout', authenticateToken, (req, res) => {
+// Maintain old login endpoint for compatibility
+app.post('/api/users/login', (req, res) => {
+  res.redirect(307, '/api/auth/login');
+});
+
+app.post('/api/auth/logout', authenticateToken, (req, res) => {
   try {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -714,21 +819,28 @@ app.post('/api/users/logout', authenticateToken, (req, res) => {
       tokenBlacklist.add(token);
     }
     
-    res.json({ message: 'Logged out successfully' });
+    res.sendData({ message: 'Logged out successfully' }, 'logoutResponse');
   } catch (error) {
-    res.status(500).json({ error: 'Failed to logout' });
+    res.status(500).sendData({ error: 'Failed to logout' });
   }
 });
 
-// New token validation endpoint
-app.get('/api/users/verify', authenticateToken, (req, res) => {
-  res.json({ 
+app.post('/api/users/logout', (req, res) => {
+  res.redirect(307, '/api/auth/logout');
+});
+
+app.get('/api/auth/verify', authenticateToken, (req, res) => {
+  res.sendData({ 
     valid: true, 
     user: { 
       userId: req.user.userId, 
       username: req.user.username 
     } 
-  });
+  }, 'verifyResponse');
+});
+
+app.get('/api/users/verify', (req, res) => {
+  res.redirect(301, '/api/auth/verify');
 });
 
 // Account lockout status endpoint
