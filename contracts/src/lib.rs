@@ -5,6 +5,9 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Ve
 // Maximum bid amount to prevent overflow (in stroops)
 const MAX_BID_AMOUNT: u64 = u64::MAX / 2; // Use half of u64::MAX for safety
 
+// Reveal grace period after auction ends (in seconds)
+const REVEAL_GRACE_PERIOD: u64 = 24 * 60 * 60; // 24 hours
+
 // Contract type definitions
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,6 +35,7 @@ pub struct Auction {
     pub description: String,
     pub starting_bid: u64,
     pub end_time: u64,
+    pub reveal_deadline: u64,
     pub bid_count: u64,
     pub highest_bidder: Address,
     pub highest_bid: u64,
@@ -187,6 +191,7 @@ impl SealedBidAuction {
         
         let current_time = env.ledger().timestamp();
         let end_time = current_time + duration;
+        let reveal_deadline = end_time + REVEAL_GRACE_PERIOD;
         
         // Create auction
         let auction = Auction {
@@ -196,6 +201,7 @@ impl SealedBidAuction {
             description,
             starting_bid,
             end_time,
+            reveal_deadline,
             bid_count: 0,
             highest_bidder: creator.clone(),
             highest_bid: 0,
@@ -221,7 +227,7 @@ impl SealedBidAuction {
         // Emit event
         env.events().publish(
             (symbol_short!("a_created"), auction_id),
-            (title, starting_bid, end_time),
+            (title, starting_bid, end_time, reveal_deadline),
         );
         
         // Remove lock
@@ -352,7 +358,7 @@ impl SealedBidAuction {
         let mut auction = Self::get_auction_optimized(&env, bid.auction_id)
             .unwrap_or_else(|| panic!("Auction not found"));
         
-        if env.ledger().timestamp() >= auction.end_time {
+        if env.ledger().timestamp() >= auction.reveal_deadline {
             Self::remove_lock(&env);
             panic!("Reveal period ended");
         }
@@ -406,9 +412,9 @@ impl SealedBidAuction {
             .unwrap_or_else(|| panic!("Auction not found"));
         
         // Validate auction
-        if auction.status != AuctionStatus::Active || env.ledger().timestamp() < auction.end_time {
+        if auction.status != AuctionStatus::Active || env.ledger().timestamp() < auction.reveal_deadline {
             Self::remove_lock(&env);
-            panic!("Auction not active or not ended");
+            panic!("Auction not active or reveal period not ended");
         }
         
         // End auction
