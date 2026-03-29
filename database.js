@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const DatabaseSecurityLayer = require('./utils/database-security');
 
 class AuctionDatabase {
@@ -20,12 +21,26 @@ class AuctionDatabase {
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE,
         hashed_password TEXT NOT NULL,
         failed_login_attempts INTEGER DEFAULT 0,
         last_failed_login DATETIME,
         locked_until DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create password reset tokens table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token TEXT UNIQUE NOT NULL,
+        expires_at DATETIME NOT NULL,
+        used INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
 
@@ -72,23 +87,26 @@ class AuctionDatabase {
       CREATE INDEX IF NOT EXISTS idx_bids_auction_id ON bids(auction_id);
       CREATE INDEX IF NOT EXISTS idx_bids_bidder_id ON bids(bidder_id);
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
     `);
   }
 
   // User operations
-  createUser(id, username, password) {
+  createUser(id, username, password, email = null) {
     // Validate inputs
-    const validation = this.securityLayer.validateInputs({ id, username, password });
+    const validation = this.securityLayer.validateInputs({ id, username, password, email });
     if (!validation.valid) {
       throw new Error(validation.errors.join(', '));
     }
     
     const hashedPassword = bcrypt.hashSync(password, 10);
     const stmt = this.securityLayer.prepare(`
-      INSERT INTO users (id, username, hashed_password)
-      VALUES (?, ?, ?)
+      INSERT INTO users (id, username, email, hashed_password)
+      VALUES (?, ?, ?, ?)
     `);
-    return stmt.run(id, username, hashedPassword);
+    return stmt.run(id, username, email, hashedPassword);
   }
 
   getUserByUsername(username) {
@@ -441,6 +459,97 @@ class AuctionDatabase {
     const stmt = this.securityLayer.prepare('SELECT MAX(amount) as highest FROM bids WHERE auction_id = ?');
     const result = stmt.get(validation.sanitized);
     return result.highest;
+  }
+
+  // Password reset operations
+  getUserByEmail(email) {
+    const validation = this.securityLayer.validateInput(email);
+    if (!validation.valid) {
+      console.warn('[SECURITY] Invalid email format:', email);
+      return null;
+    }
+    
+    const stmt = this.securityLayer.prepare('SELECT * FROM users WHERE email = ?');
+    return stmt.get(validation.sanitized);
+  }
+
+  createPasswordResetToken(userId, token, expiresAt) {
+    const validation = this.securityLayer.validateInputs({ userId, token, expiresAt });
+    if (!validation.valid) {
+      throw new Error(validation.errors.join(', '));
+    }
+    
+    // Invalidate any existing tokens for this user
+    this.invalidateUserResetTokens(userId);
+    
+    const stmt = this.securityLayer.prepare(`
+      INSERT INTO password_reset_tokens (id, user_id, token, expires_at)
+      VALUES (?, ?, ?, ?)
+    `);
+    return stmt.run(crypto.randomUUID(), validation.sanitized.userId, validation.sanitized.token, validation.sanitized.expiresAt);
+  }
+
+  getValidResetToken(token) {
+    const validation = this.securityLayer.validateInput(token);
+    if (!validation.valid) {
+      console.warn('[SECURITY] Invalid token format:', token);
+      return null;
+    }
+    
+    const stmt = this.securityLayer.prepare(`
+      SELECT * FROM password_reset_tokens 
+      WHERE token = ? AND used = 0 AND expires_at > datetime('now')
+    `);
+    return stmt.get(validation.sanitized);
+  }
+
+  invalidateResetToken(token) {
+    const validation = this.securityLayer.validateInput(token);
+    if (!validation.valid) {
+      console.warn('[SECURITY] Invalid token format:', token);
+      return false;
+    }
+    
+    const stmt = this.securityLayer.prepare(`
+      UPDATE password_reset_tokens SET used = 1 WHERE token = ?
+    `);
+    const result = stmt.run(validation.sanitized);
+    return result.changes > 0;
+  }
+
+  invalidateUserResetTokens(userId) {
+    const validation = this.securityLayer.validateInput(userId);
+    if (!validation.valid) {
+      console.warn('[SECURITY] Invalid user ID format:', userId);
+      return false;
+    }
+    
+    const stmt = this.securityLayer.prepare(`
+      UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0
+    `);
+    const result = stmt.run(validation.sanitized);
+    return result.changes > 0;
+  }
+
+  updateUserPassword(userId, newPassword) {
+    const validation = this.securityLayer.validateInputs({ userId, newPassword });
+    if (!validation.valid) {
+      throw new Error(validation.errors.join(', '));
+    }
+    
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+    const stmt = this.securityLayer.prepare(`
+      UPDATE users SET hashed_password = ?, updated_at = datetime('now') WHERE id = ?
+    `);
+    return stmt.run(hashedPassword, validation.sanitized.userId);
+  }
+
+  // Cleanup expired tokens
+  cleanupExpiredTokens() {
+    const stmt = this.securityLayer.prepare(`
+      DELETE FROM password_reset_tokens WHERE expires_at <= datetime('now')
+    `);
+    return stmt.run();
   }
 
   // Utility methods

@@ -9,6 +9,7 @@ const ajv = new Ajv({ allErrors: true, coerceTypes: true });
 // Custom formats
 ajv.addFormat('uuid', /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 ajv.addFormat('datetime', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/);
+ajv.addFormat('email', /^[^\s@]+@[^\s@]+\.[^\s@]+$/);
 
 // Schemas for different request types
 const schemas = {
@@ -26,6 +27,11 @@ const schemas = {
         type: 'string', 
         minLength: 8, 
         maxLength: 128 
+      },
+      email: {
+        type: 'string',
+        format: 'email',
+        maxLength: 254
       }
     },
     required: ['username', 'password'],
@@ -125,6 +131,53 @@ const schemas = {
         enum: ['active', 'closed', 'cancelled', '']
       }
     },
+    additionalProperties: false
+  },
+
+  // Email validation
+  email: {
+    type: 'object',
+    properties: {
+      email: { 
+        type: 'string',
+        format: 'email',
+        maxLength: 254
+      }
+    },
+    required: ['email'],
+    additionalProperties: false
+  },
+
+  // Password reset
+  resetPassword: {
+    type: 'object',
+    properties: {
+      token: { 
+        type: 'string',
+        minLength: 32,
+        maxLength: 128
+      },
+      newPassword: { 
+        type: 'string', 
+        minLength: 8, 
+        maxLength: 128 
+      }
+    },
+    required: ['token', 'newPassword'],
+    additionalProperties: false
+  },
+
+  // Token validation
+  token: {
+    type: 'object',
+    properties: {
+      token: { 
+        type: 'string',
+        minLength: 32,
+        maxLength: 128
+      }
+    },
+    required: ['token'],
     additionalProperties: false
   }
 };
