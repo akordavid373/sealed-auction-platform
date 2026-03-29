@@ -23,12 +23,14 @@ const { Server, Keypair, TransactionBuilder, Networks, BASE_FEE, Asset } = requi
 const session = require('express-session');
 const passport = require('passport');
 const AuctionDatabase = require('./database');
+const { ApplicationMetrics, createMetricsMiddleware } = require('./utils/metrics');
 
 // Initialize database
 const db = new AuctionDatabase();
 
 const app = express();
 const server = http.createServer(app);
+const appMetrics = new ApplicationMetrics();
 const io = socketIo(server, {
   cors: {
     origin: "*",
@@ -75,6 +77,7 @@ function logError(message, error, context = {}) {
 
 // Security middleware
 app.use(helmet());
+app.use(createMetricsMiddleware(appMetrics));
 
 // Security monitoring endpoint (admin only)
 app.get('/api/security/stats', (req, res) => {
@@ -97,6 +100,26 @@ app.get('/api/security/logs', (req, res) => {
   } catch (error) {
     logError('Error getting query logs:', error, { endpoint: '/api/security/logs' });
     res.status(500).json({ error: 'Failed to get query logs' });
+  }
+});
+
+// Application metrics endpoints
+app.get('/api/monitoring/metrics', (req, res) => {
+  try {
+    res.json(appMetrics.getSnapshot());
+  } catch (error) {
+    console.error('Error getting application metrics:', error);
+    res.status(500).json({ error: 'Failed to get application metrics' });
+  }
+});
+
+app.get('/api/monitoring/metrics/prometheus', (req, res) => {
+  try {
+    res.type('text/plain');
+    res.send(appMetrics.toPrometheus());
+  } catch (error) {
+    console.error('Error getting prometheus metrics:', error);
+    res.status(500).json({ error: 'Failed to get prometheus metrics' });
   }
 });
 

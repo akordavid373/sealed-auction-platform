@@ -11,6 +11,7 @@ A secure, web-based sealed-bid auction platform with private input encryption an
 - **Dark Mode Toggle**: Switch between light and dark themes with localStorage persistence
 - **Rate Limiting**: Protection against brute force attacks and spam
 - **Auto-Closing**: Auctions automatically close when their end time is reached
+- **Application Metrics**: Request, latency, error, and process metrics collection
 
 ## Security Features
 
@@ -115,6 +116,10 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 
 ### Bids
 - `POST /api/auctions/:id/bids` - Place a sealed bid
+
+### Monitoring
+- `GET /api/monitoring/metrics` - Application metrics in JSON
+- `GET /api/monitoring/metrics/prometheus` - Metrics in Prometheus text format
 
 ## Security Considerations
 
