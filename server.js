@@ -24,9 +24,11 @@ const session = require('express-session');
 const passport = require('passport');
 const AuctionDatabase = require('./database');
 const { ApplicationMetrics, createMetricsMiddleware } = require('./utils/metrics');
+const WalletManager = require('./utils/wallet-manager');
 
 // Initialize database
 const db = new AuctionDatabase();
+const walletManager = new WalletManager(db);
 
 const app = express();
 const server = http.createServer(app);
@@ -985,6 +987,384 @@ app.get('/api/auth/status', (req, res) => {
       login: { href: '/api/auth/login', method: 'POST' }
     }
   });
+});
+
+// ============================================
+// WALLET MANAGEMENT ENDPOINTS
+// ============================================
+
+// Get all wallets for authenticated user
+app.get('/api/wallets', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = walletManager.getUserWallets(userId);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        wallets: result.wallets,
+        count: result.wallets.length,
+        _links: {
+          self: { href: '/api/wallets', method: 'GET' },
+          create: { href: '/api/wallets', method: 'POST' },
+          aggregated_balance: { href: '/api/wallets/balance', method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error getting user wallets:', error, { endpoint: '/api/wallets', method: 'GET' });
+    res.status(500).json({ error: 'Failed to get wallets' });
+  }
+});
+
+// Get aggregated balance for all user wallets
+app.get('/api/wallets/balance', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = walletManager.getAggregatedBalance(userId);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        totalBalance: result.totalBalance,
+        currency: 'XLM',
+        _links: {
+          self: { href: '/api/wallets/balance', method: 'GET' },
+          wallets: { href: '/api/wallets', method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error getting aggregated balance:', error, { endpoint: '/api/wallets/balance', method: 'GET' });
+    res.status(500).json({ error: 'Failed to get aggregated balance' });
+  }
+});
+
+// Create new wallet for authenticated user
+app.post('/api/wallets', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { walletName, network = 'testnet' } = req.body;
+
+    if (!walletName) {
+      return res.status(400).json({ error: 'Wallet name is required' });
+    }
+
+    // Generate new keypair
+    const keypair = Keypair.random();
+    const publicKey = keypair.publicKey();
+    const secretKey = keypair.secret();
+
+    // Encrypt private key
+    const encryptedPrivateKey = walletManager.encryptData(secretKey);
+
+    const result = walletManager.createWallet(userId, walletName, publicKey, encryptedPrivateKey);
+
+    if (result.success) {
+      res.status(201).json({
+        success: true,
+        walletId: result.walletId,
+        publicKey,
+        message: 'Wallet created successfully. Store your secret key securely.',
+        _links: {
+          self: { href: `/api/wallets/${result.walletId}`, method: 'GET' },
+          activate: { href: '/api/wallets/switch', method: 'POST' },
+          backup: { href: `/api/wallets/${result.walletId}/backup`, method: 'GET' },
+          transactions: { href: `/api/wallets/${result.walletId}/transactions`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error creating wallet:', error, { endpoint: '/api/wallets', method: 'POST' });
+    res.status(500).json({ error: 'Failed to create wallet' });
+  }
+});
+
+// Get specific wallet details
+app.get('/api/wallets/:walletId', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { walletId } = req.params;
+
+    const result = walletManager.getUserWallets(userId);
+    
+    if (result.success) {
+      const wallet = result.wallets.find(w => w.id === walletId);
+      if (!wallet) {
+        return res.status(404).json({ error: 'Wallet not found' });
+      }
+
+      res.json({
+        success: true,
+        wallet,
+        _links: {
+          self: { href: `/api/wallets/${walletId}`, method: 'GET' },
+          transactions: { href: `/api/wallets/${walletId}/transactions`, method: 'GET' },
+          security: { href: `/api/wallets/${walletId}/security`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error getting wallet:', error, { endpoint: '/api/wallets/:walletId', method: 'GET' });
+    res.status(500).json({ error: 'Failed to get wallet' });
+  }
+});
+
+// Switch active wallet
+app.post('/api/wallets/switch', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { walletId } = req.body;
+
+    if (!walletId) {
+      return res.status(400).json({ error: 'Wallet ID is required' });
+    }
+
+    const result = walletManager.switchActiveWallet(userId, walletId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        _links: {
+          self: { href: '/api/wallets/switch', method: 'POST' },
+          wallets: { href: '/api/wallets', method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error switching wallet:', error, { endpoint: '/api/wallets/switch', method: 'POST' });
+    res.status(500).json({ error: 'Failed to switch wallet' });
+  }
+});
+
+// Delete wallet
+app.delete('/api/wallets/:walletId', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { walletId } = req.params;
+
+    const result = walletManager.deleteWallet(walletId, userId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        _links: {
+          wallets: { href: '/api/wallets', method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error deleting wallet:', error, { endpoint: '/api/wallets/:walletId', method: 'DELETE' });
+    res.status(500).json({ error: 'Failed to delete wallet' });
+  }
+});
+
+// Get wallet transaction history
+app.get('/api/wallets/:walletId/transactions', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { walletId } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const result = walletManager.getWalletTransactionHistory(walletId, limit, offset);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        transactions: result.transactions,
+        count: result.transactions.length,
+        _links: {
+          self: { href: `/api/wallets/${walletId}/transactions`, method: 'GET' },
+          wallet: { href: `/api/wallets/${walletId}`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error getting transaction history:', error, { endpoint: '/api/wallets/:walletId/transactions', method: 'GET' });
+    res.status(500).json({ error: 'Failed to get transaction history' });
+  }
+});
+
+// Get all user transactions (across all wallets)
+app.get('/api/wallets/transactions/history', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const limit = parseInt(req.query.limit) || 100;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const result = walletManager.getUserTransactionHistory(userId, limit, offset);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        transactions: result.transactions,
+        count: result.transactions.length,
+        _links: {
+          self: { href: '/api/wallets/transactions/history', method: 'GET' },
+          wallets: { href: '/api/wallets', method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error getting user transaction history:', error, { endpoint: '/api/wallets/transactions/history', method: 'GET' });
+    res.status(500).json({ error: 'Failed to get transaction history' });
+  }
+});
+
+// Get wallet security settings
+app.get('/api/wallets/:walletId/security', authenticateToken, (req, res) => {
+  try {
+    const { walletId } = req.params;
+
+    const result = walletManager.getWalletSecurity(walletId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        security: result.security,
+        _links: {
+          self: { href: `/api/wallets/${walletId}/security`, method: 'GET' },
+          enable_2fa: { href: `/api/wallets/${walletId}/security/2fa/enable`, method: 'POST' },
+          disable_2fa: { href: `/api/wallets/${walletId}/security/2fa/disable`, method: 'POST' },
+          backup: { href: `/api/wallets/${walletId}/backup`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error getting wallet security:', error, { endpoint: '/api/wallets/:walletId/security', method: 'GET' });
+    res.status(500).json({ error: 'Failed to get wallet security settings' });
+  }
+});
+
+// Enable 2FA for wallet
+app.post('/api/wallets/:walletId/security/2fa/enable', authenticateToken, (req, res) => {
+  try {
+    const { walletId } = req.params;
+
+    const result = walletManager.enable2FA(walletId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        _links: {
+          security: { href: `/api/wallets/${walletId}/security`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error enabling 2FA:', error, { endpoint: '/api/wallets/:walletId/security/2fa/enable', method: 'POST' });
+    res.status(500).json({ error: 'Failed to enable 2FA' });
+  }
+});
+
+// Disable 2FA for wallet
+app.post('/api/wallets/:walletId/security/2fa/disable', authenticateToken, (req, res) => {
+  try {
+    const { walletId } = req.params;
+
+    const result = walletManager.disable2FA(walletId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        _links: {
+          security: { href: `/api/wallets/${walletId}/security`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error disabling 2FA:', error, { endpoint: '/api/wallets/:walletId/security/2fa/disable', method: 'POST' });
+    res.status(500).json({ error: 'Failed to disable 2FA' });
+  }
+});
+
+// Get backup recovery options
+app.get('/api/wallets/:walletId/backup', authenticateToken, (req, res) => {
+  try {
+    const { walletId } = req.params;
+
+    const result = walletManager.getWalletSecurity(walletId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        backup: {
+          lastBackup: result.security?.last_backup,
+          recoveryHashExists: !!result.security?.backup_recovery_hash,
+          message: 'Backup and recovery options available'
+        },
+        _links: {
+          self: { href: `/api/wallets/${walletId}/backup`, method: 'GET' },
+          create_backup: { href: `/api/wallets/${walletId}/backup/create`, method: 'POST' },
+          security: { href: `/api/wallets/${walletId}/security`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error getting backup options:', error, { endpoint: '/api/wallets/:walletId/backup', method: 'GET' });
+    res.status(500).json({ error: 'Failed to get backup options' });
+  }
+});
+
+// Create backup recovery hash
+app.post('/api/wallets/:walletId/backup/create', authenticateToken, (req, res) => {
+  try {
+    const { walletId } = req.params;
+    const { recoveryPhrase } = req.body;
+
+    if (!recoveryPhrase) {
+      return res.status(400).json({ error: 'Recovery phrase is required' });
+    }
+
+    // Create hash of recovery phrase
+    const recoveryHash = crypto.createHash('sha256').update(recoveryPhrase).digest('hex');
+
+    const result = walletManager.setBackupRecoveryHash(walletId, recoveryHash);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        _links: {
+          backup: { href: `/api/wallets/${walletId}/backup`, method: 'GET' }
+        }
+      });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    logError('Error creating backup:', error, { endpoint: '/api/wallets/:walletId/backup/create', method: 'POST' });
+    res.status(500).json({ error: 'Failed to create backup' });
+  }
 });
 
 // Socket.io connections
