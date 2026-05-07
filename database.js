@@ -762,7 +762,7 @@ class AuctionDatabase {
     if (isNaN(pageNum) || pageNum < 1) {
       throw new Error('Invalid page number');
     }
-    
+
     if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
       throw new Error('Limit must be between 1 and 100');
     }
@@ -972,6 +972,106 @@ class AuctionDatabase {
     }
   }
 
+  getUserAuctions(userId, filters = {}) {
+    const { limit = 50, offset = 0, status, sortBy = 'created_at', sortOrder = 'DESC' } = filters;
+    
+    // Validate user ID
+    const userValidation = this.securityLayer.validateInput(userId);
+    if (!userValidation.valid) {
+      throw new Error('Invalid user ID');
+    }
+    
+    let query = `
+      SELECT a.*, 
+             COUNT(b.id) as bid_count,
+             MAX(b.amount) as highest_bid,
+             u.username as creator_username
+      FROM auctions a
+      LEFT JOIN bids b ON a.id = b.auction_id
+      LEFT JOIN users u ON a.creator_id = u.id
+      WHERE a.creator_id = ?
+    `;
+    const params = [userValidation.sanitized];
+    
+    if (status && status !== 'all') {
+      query += ` AND a.status = ?`;
+      params.push(status);
+    }
+    
+    query += ` GROUP BY a.id`;
+    
+    // Validate sort column
+    const validSortColumns = ['created_at', 'end_time', 'title', 'starting_bid', 'status'];
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'created_at';
+    const sortDirection = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    
+    query += ` ORDER BY a.${sortColumn} ${sortDirection} LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+    
+    const stmt = this.securityLayer.prepare(query);
+    return stmt.all(...params);
+  }
+
+  getUserAuctionsCount(userId, status) {
+    const userValidation = this.securityLayer.validateInput(userId);
+    if (!userValidation.valid) {
+      throw new Error('Invalid user ID');
+    }
+
+    let query = `SELECT COUNT(DISTINCT a.id) as total FROM auctions a WHERE a.creator_id = ?`;
+    const params = [userValidation.sanitized];
+
+    if (status && status !== 'all') {
+      query += ` AND a.status = ?`;
+      params.push(status);
+    }
+
+    const stmt = this.securityLayer.prepare(query);
+    const result = stmt.get(...params);
+    return result.total || 0;
+  }
+
+  getUserDashboardStats(userId) {
+    // Validate user ID
+    const userValidation = this.securityLayer.validateInput(userId);
+    if (!userValidation.valid) {
+      throw new Error('Invalid user ID');
+    }
+    
+    const stmt = this.securityLayer.prepare(`
+      SELECT 
+        COUNT(DISTINCT CASE WHEN a.creator_id = ? THEN a.id END) as total_auctions_created,
+        COUNT(DISTINCT CASE WHEN a.creator_id = ? AND a.status = 'active' THEN a.id END) as active_auctions,
+        COUNT(DISTINCT CASE WHEN a.creator_id = ? AND a.status = 'closed' AND a.winner_id IS NOT NULL THEN a.id END) as successful_auctions,
+        COUNT(DISTINCT CASE WHEN b.bidder_id = ? THEN b.id END) as total_bids_placed,
+        COUNT(DISTINCT CASE WHEN b.bidder_id = ? AND a.status = 'closed' AND a.winner_id = ? THEN b.auction_id END) as auctions_won,
+        COALESCE(SUM(CASE WHEN b.bidder_id = ? AND a.status = 'closed' AND a.winner_id = ? THEN a.current_highest_bid END), 0) as total_won_value,
+        COALESCE(SUM(CASE WHEN b.bidder_id = ? THEN b.amount END), 0) as total_bid_amount,
+        COALESCE(AVG(CASE WHEN b.bidder_id = ? THEN b.amount END), 0) as avg_bid_amount
+      FROM users u
+      LEFT JOIN auctions a ON a.creator_id = u.id
+      LEFT JOIN bids b ON b.bidder_id = u.id
+      LEFT JOIN auctions ab ON b.auction_id = ab.id
+      WHERE u.id = ?
+    `);
+    
+    const result = stmt.get(
+      userValidation.sanitized, // total_auctions_created
+      userValidation.sanitized, // active_auctions
+      userValidation.sanitized, // successful_auctions
+      userValidation.sanitized, // total_bids_placed
+      userValidation.sanitized, // auctions_won (bidder)
+      userValidation.sanitized, // auctions_won (winner check)
+      userValidation.sanitized, // total_won_value (bidder)
+      userValidation.sanitized, // total_won_value (winner check)
+      userValidation.sanitized, // total_bid_amount
+      userValidation.sanitized, // avg_bid_amount
+      userValidation.sanitized  // WHERE clause
+    );
+    
+    return result;
+  }
+
   updateAuction(id, updates) {
     // Validate ID
     const idValidation = this.securityLayer.validateInput(id);
@@ -1028,12 +1128,12 @@ class AuctionDatabase {
       throw new Error(validations.errors.join(', '));
     }
     
-    const stmt = this.securityLayer.prepare(`
+    const updateStmt = this.securityLayer.prepare(`
       UPDATE auctions 
       SET status = 'closed', winner_id = ?, winning_bid_id = ?, updated_at = CURRENT_TIMESTAMP 
       WHERE id = ?
     `);
-    return stmt.run(
+    return updateStmt.run(
       validations.sanitized.winnerId,
       validations.sanitized.winningBidId,
       validations.sanitized.id
@@ -1101,6 +1201,49 @@ class AuctionDatabase {
     const stmt = this.securityLayer.prepare('SELECT MAX(amount) as highest FROM bids WHERE auction_id = ?');
     const result = stmt.get(validation.sanitized);
     return result.highest;
+  }
+
+  getUserBidHistory(userId, options = {}) {
+    const { limit = 20, status = null, sortBy = 'timestamp', sortOrder = 'DESC' } = options;
+    
+    const userValidation = this.securityLayer.validateInput(userId);
+    if (!userValidation.valid) {
+      throw new Error('Invalid user ID');
+    }
+    
+    let query = `
+      SELECT b.*, 
+             a.title as auction_title, 
+             a.status as auction_status, 
+             a.end_time,
+             (SELECT MAX(amount) FROM bids WHERE auction_id = a.id) as current_highest_bid,
+             CASE WHEN a.winner_id = b.bidder_id THEN 1 ELSE 0 END as is_winning_bid
+      FROM bids b
+      JOIN auctions a ON b.auction_id = a.id
+      WHERE b.bidder_id = ?
+    `;
+    
+    const params = [userValidation.sanitized];
+    
+    if (status && status !== 'all') {
+      query += ` AND a.status = ?`;
+      params.push(status);
+    }
+    
+    // Group by auction ID if we just want the highest bid per auction
+    // But since this is a history, we probably want all bids.
+    // Wait, the frontend might want just the latest bid per auction if status='active'.
+    // The previous implementation used it for "Active Bids" and "Recent Activity".
+    
+    const validSortColumns = ['timestamp', 'amount'];
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'timestamp';
+    const sortDirection = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    
+    query += ` ORDER BY b.${sortColumn} ${sortDirection} LIMIT ?`;
+    params.push(parseInt(limit) || 20);
+    
+    const stmt = this.securityLayer.prepare(query);
+    return stmt.all(...params);
   }
 
   // Password reset operations

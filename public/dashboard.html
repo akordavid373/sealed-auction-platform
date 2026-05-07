@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Auction Analytics Dashboard</title>
+    <title>My Auction Dashboard</title>
     
     <!-- PWA Meta Tags -->
-    <meta name="description" content="Interactive dashboard with charts, graphs, and analytics for auction insights">
+    <meta name="description" content="Personal dashboard for managing auctions, bids, and activity">
     <meta name="theme-color" content="#667eea">
     <meta name="background-color" content="#ffffff">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Dashboard">
     <meta name="application-name" content="Auction Platform">
-    <meta name="msapplication-TileColor" content="#667eea">
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json">
@@ -33,28 +32,91 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
     <link rel="shortcut icon" href="/favicon.ico">
     
-    <!-- Chart.js and dependencies via CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/index.min.js"></script>
-    
-    <!-- Export libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    
     <!-- Socket.IO for real-time updates -->
     <script src="/socket.io/socket.io.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- Fallback CSS if Tailwind fails to load -->
+    <link rel="stylesheet" href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" onerror="loadFallbackCSS()">
+    
     <style>
-        .chart-container {
-            position: relative;
-            height: 300px;
-            margin: 1rem 0;
+        /* Basic styles that work without Tailwind */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f9fafb;
+            margin: 0;
+            padding: 0;
         }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .auction-card {
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .auction-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.15);
+        }
+        
+        .grid {
+            display: grid;
+            gap: 1.5rem;
+        }
+        
+        .grid-cols-1 { grid-template-columns: repeat(1, 1fr); }
+        .md-grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+        .md-grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+        .md-grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+        .col-span-full { grid-column: 1 / -1; }
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        .text-center { text-align: center; }
+        .text-2xl { font-size: 1.5rem; }
+        .text-3xl { font-size: 1.875rem; }
+        .font-bold { font-weight: bold; }
+        .text-gray-900 { color: #111827; }
+        .text-gray-600 { color: #4b5563; }
+        .text-green-600 { color: #059669; }
+        .text-blue-600 { color: #2563eb; }
+        .text-purple-600 { color: #7c3aed; }
+        .text-yellow-600 { color: #d97706; }
+        .text-red-600 { color: #dc2626; }
+        .bg-green-100 { background-color: #dcfce7; }
+        .bg-blue-100 { background-color: #dbeafe; }
+        .bg-purple-100 { background-color: #f3e8ff; }
+        .bg-yellow-100 { background-color: #fef3c7; }
+        .bg-red-100 { background-color: #fee2e2; }
+        .mb-4 { margin-bottom: 1rem; }
+        .mb-6 { margin-bottom: 1.5rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .p-4 { padding: 1rem; }
+        .px-4 { padding-left: 1rem; padding-right: 1rem; }
+        .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
         
         .loading-spinner {
             border: 3px solid #f3f3f3;
@@ -70,220 +132,172 @@
             100% { transform: rotate(360deg); }
         }
         
-        .stat-card {
-            transition: transform 0.2s ease-in-out;
+        .status-active { color: #059669; }
+        .status-closed { color: #dc2626; }
+        .status-pending { color: #d97706; }
+        
+        .activity-feed {
+            max-height: 400px;
+            overflow-y: auto;
         }
         
-        .stat-card:hover {
-            transform: translateY(-2px);
+        .activity-item {
+            padding: 0.75rem;
+            border-bottom: 1px solid #e5e7eb;
         }
         
-        @media (max-width: 768px) {
-            .chart-container {
-                height: 250px;
-            }
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* Responsive grid */
+        @media (min-width: 768px) {
+            .md-grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+            .md-grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+            .md-grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+        }
+        
+        @media (min-width: 1024px) {
+            .lg-grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
         }
     </style>
+    
+    <script>
+        function loadFallbackCSS() {
+            document.body.classList.add('fallback-styles');
+            console.log('Tailwind CSS failed to load, using fallback styles');
+        }
+        
+        // Check if Tailwind is loaded after a delay
+        setTimeout(() => {
+            if (!window.tailwind) {
+                loadFallbackCSS();
+            }
+        }, 3000);
+    </script>
 </head>
 <body class="bg-gray-50">
     <!-- Skip Navigation Link -->
-    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <a href="#main-content" class="skip-link sr-only">Skip to main content</a>
     
     <!-- Navigation -->
     <nav class="bg-white shadow-sm border-b">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16">
+        <div class="container">
+            <div class="flex justify-between items-center h-16">
                 <div class="flex items-center">
-                    <h1 class="text-xl font-semibold text-gray-900">Auction Analytics Dashboard</h1>
+                    <h1 class="text-xl font-semibold text-gray-900">My Auction Dashboard</h1>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button id="refreshBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition">
-                        Refresh Data
+                    <button id="createAuctionBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition">
+                        Create Auction
                     </button>
-                    <div class="flex space-x-2">
-                        <button id="exportPdfBtn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition">
-                            Export PDF
-                        </button>
-                        <button id="exportCsvBtn" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition">
-                            Export CSV
-                        </button>
-                    </div>
+                    <button id="refreshBtn" class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition">
+                        Refresh
+                    </button>
                 </div>
             </div>
         </div>
     </nav>
 
     <!-- Main Content -->
-    <main id="main-content" role="main" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Filters Section -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 class="text-lg font-semibold mb-4">Filters</h2>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
-                    <select id="dateRange" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="7">Last 7 Days</option>
-                        <option value="30" selected>Last 30 Days</option>
-                        <option value="90">Last 90 Days</option>
-                        <option value="365">Last Year</option>
-                        <option value="all">All Time</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Auction Status</label>
-                    <select id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="all">All Status</option>
+    <main id="main-content" role="main" class="container">
+        <!-- Statistics Cards -->
+        <div class="grid md-grid-cols-4 gap-6 mb-6">
+            <div class="card text-center">
+                <div class="text-3xl font-bold text-blue-600" id="totalAuctions">-</div>
+                <div class="text-gray-600">Total Auctions</div>
+            </div>
+            <div class="card text-center">
+                <div class="text-3xl font-bold text-green-600" id="activeAuctions">-</div>
+                <div class="text-gray-600">Active Auctions</div>
+            </div>
+            <div class="card text-center">
+                <div class="text-3xl font-bold text-purple-600" id="totalBids">-</div>
+                <div class="text-gray-600">Bids Placed</div>
+            </div>
+            <div class="card text-center">
+                <div class="text-3xl font-bold text-yellow-600" id="auctionsWon">-</div>
+                <div class="text-gray-600">Auctions Won</div>
+            </div>
+        </div>
+
+        <!-- Filters and Controls -->
+        <div class="card mb-6">
+            <div class="flex flex-wrap gap-4 items-center justify-between">
+                <div class="flex gap-4">
+                    <select id="statusFilter" class="px-3 py-2 border border-gray-300 rounded-md">
+                        <option value="all">All Auctions</option>
                         <option value="active">Active</option>
                         <option value="closed">Closed</option>
-                        <option value="cancelled">Cancelled</option>
+                        <option value="pending">Pending</option>
+                    </select>
+                    <select id="sortBy" class="px-3 py-2 border border-gray-300 rounded-md">
+                        <option value="created_at">Date Created</option>
+                        <option value="end_time">End Time</option>
+                        <option value="title">Title</option>
+                        <option value="starting_bid">Starting Bid</option>
+                    </select>
+                    <select id="sortOrder" class="px-3 py-2 border border-gray-300 rounded-md">
+                        <option value="DESC">Newest First</option>
+                        <option value="ASC">Oldest First</option>
                     </select>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Min Bid Amount</label>
-                    <input type="number" id="minBid" placeholder="0" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="0">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Max Bid Amount</label>
-                    <input type="number" id="maxBid" placeholder="10000" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="10000">
+                <div class="text-sm text-gray-600">
+                    Showing <span id="showingCount">0</span> auctions
                 </div>
             </div>
         </div>
 
-        <!-- Stats Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-            <div class="stat-card bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm font-medium text-gray-600">Total Auctions</p>
-                        <p id="totalAuctions" class="text-2xl font-bold text-gray-900 mt-2">-</p>
-                    </div>
-                    <div class="p-3 bg-blue-100 rounded-full">
-                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                        </svg>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="stat-card bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm font-medium text-gray-600">Active Auctions</p>
-                        <p id="activeAuctions" class="text-2xl font-bold text-green-600 mt-2">-</p>
-                    </div>
-                    <div class="p-3 bg-green-100 rounded-full">
-                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" dM13 10V3L4 14h7v7l9-11h-7z"></path>
-                        </svg>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="stat-card bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm font-medium text-gray-600">Total Bids</p>
-                        <p id="totalBids" class="text-2xl font-bold text-purple-600 mt-2">-</p>
-                    </div>
-                    <div class="p-3 bg-purple-100 rounded-full">
-                        <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-                        </svg>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="stat-card bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm font-medium text-gray-600">Total Revenue</p>
-                        <p id="totalRevenue" class="text-2xl font-bold text-yellow-600 mt-2">-</p>
-                    </div>
-                    <div class="p-3 bg-yellow-100 rounded-full">
-                        <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                    </div>
-                </div>
+        <!-- Auctions Grid -->
+        <div class="grid md-grid-cols-2 lg-grid-cols-3 gap-6 mb-6">
+            <div id="auctionsGrid" class="contents">
+                <!-- Auction cards will be populated here -->
             </div>
         </div>
 
-        <!-- Charts Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <!-- Auction Trends Chart -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4">Auction Trends Over Time</h3>
-                <div class="chart-container">
-                    <canvas id="auctionTrendsChart"></canvas>
-                </div>
-            </div>
-            
-            <!-- Bid Distribution Chart -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4">Bid Distribution</h3>
-                <div class="chart-container">
-                    <canvas id="bidDistributionChart"></canvas>
-                </div>
-            </div>
+        <!-- Pagination -->
+        <div id="pagination" class="flex justify-center gap-2 mb-6" style="display: none;">
+            <button id="prevPage" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50" disabled>
+                Previous
+            </button>
+            <span id="pageInfo" class="px-4 py-2 text-gray-700">Page 1</span>
+            <button id="nextPage" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50" disabled>
+                Next
+            </button>
         </div>
 
-        <!-- Second Row of Charts -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <!-- Revenue Analytics Chart -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4">Revenue Analytics</h3>
-                <div class="chart-container">
-                    <canvas id="revenueChart"></canvas>
+        <!-- Activity Feed and Active Bids -->
+        <div class="grid md-grid-cols-2 gap-6">
+            <!-- Activity Feed -->
+            <div class="card">
+                <h3 class="text-lg font-semibold mb-4">Recent Activity</h3>
+                <div id="activityFeed" class="activity-feed">
+                    <!-- Activity items will be populated here -->
                 </div>
             </div>
-            
-            <!-- Auction Status Breakdown -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4">Auction Status Breakdown</h3>
-                <div class="chart-container">
-                    <canvas id="statusChart"></canvas>
+
+            <!-- Active Bids -->
+            <div class="card">
+                <h3 class="text-lg font-semibold mb-4">My Active Bids</h3>
+                <div id="activeBids" class="space-y-3">
+                    <!-- Active bid items will be populated here -->
                 </div>
-            </div>
-        </div>
-
-        <!-- Top Auctions Table -->
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="text-lg font-semibold mb-4">Top Performing Auctions</h3>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50" scope="col">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" scope="col">Auction Title</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" scope="col">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" scope="col">Total Bids</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" scope="col">Highest Bid</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" scope="col">Created</th>
-                        </tr>
-                    </thead>
-                    <tbody id="topAuctionsTable" class="bg-white divide-y divide-gray-200">
-                        <!-- Table rows will be populated dynamically -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Loading Overlay -->
-        <div id="loadingOverlay" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
-            <div class="bg-white rounded-lg p-6 flex flex-col items-center">
-                <div class="loading-spinner mb-4"></div>
-                <p class="text-gray-700">Loading dashboard data...</p>
             </div>
         </div>
     </main>
 
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-white rounded-lg p-6 flex flex-col items-center">
+            <div class="loading-spinner mb-4"></div>
+            <p class="text-gray-700">Loading dashboard...</p>
+        </div>
+    </div>
+
     <script src="dashboard.js"></script>
-    <script src="pwa.js"></script>
     
     <!-- ARIA Live Regions -->
     <div id="aria-live-polite" role="status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
     <div id="aria-live-assertive" role="alert" aria-live="assertive" aria-atomic="true" class="sr-only"></div>
-    
-    <!-- Accessibility JavaScript -->
-    <script src="accessibility.js"></script>
 </body>
 </html>

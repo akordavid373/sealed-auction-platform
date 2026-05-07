@@ -32,6 +32,7 @@ const { TransactionQueue, PRIORITY, STATUS } = require('./utils/transaction-queu
 const { WalletManager, SECURITY_LEVELS, WALLET_TYPES } = require('./utils/wallet-manager');
 const { BlockchainAnalytics, AGGREGATION_INTERVALS, METRIC_TYPES } = require('./utils/blockchain-analytics');
 
+
 // Initialize database
 const db = new AuctionDatabase();
 
@@ -89,6 +90,25 @@ const blockchainAnalytics = new BlockchainAnalytics({
 });
 
 const app = express();
+app.set('trust proxy', true);
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads', 'nft');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+
+
 const server = http.createServer(app);
 const appMetrics = new ApplicationMetrics();
 const io = socketIo(server, {
@@ -197,7 +217,22 @@ app.get('/api/health', (req, res) => {
 });
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com'],
+      styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
+      connectSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:'],
+      fontSrc: ["'self'", 'https:', 'data:'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+    }
+  }
+}));
 app.use(createMetricsMiddleware(appMetrics));
 
 // Security monitoring endpoint (admin only)
@@ -4067,7 +4102,7 @@ function authenticateToken(req, res, next) {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'default-secret', (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -5396,6 +5431,67 @@ app.get('/api/nft/:id/verification', (req, res) => {
   } catch (error) {
     logError('Error fetching NFT verification:', error, { endpoint: '/api/nft/:id/verification', nftId: req.params.id });
     res.status(500).json({ error: 'Failed to fetch verification status' });
+  }
+});
+
+// User Dashboard API Endpoint
+app.get('/api/user/dashboard', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { page = 1, limit = 12, status, sortBy, sortOrder } = req.query;
+    const activeStatus = status === 'all' ? undefined : status;
+    
+    // Get user dashboard statistics
+    const stats = db.getUserDashboardStats(userId);
+    
+    // Get total auctions count for pagination
+    const totalAuctions = db.getUserAuctionsCount(userId, activeStatus);
+    
+    // Get user's auctions with pagination
+    const auctions = db.getUserAuctions(userId, {
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
+      status: activeStatus,
+      sortBy,
+      sortOrder
+    });
+    
+    // Get user's recent bid activity
+    const recentBids = db.getUserBidHistory(userId, {
+      limit: 10,
+      sortBy: 'timestamp',
+      sortOrder: 'DESC'
+    });
+    
+    // Get active auctions user has bid on
+    const activeBids = db.getUserBidHistory(userId, {
+      status: 'active',
+      limit: 20
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        stats,
+        auctions: {
+          items: auctions,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: totalAuctions,
+            totalPages: Math.ceil(totalAuctions / parseInt(limit))
+          }
+        },
+        recentActivity: recentBids,
+        activeBids
+      }
+    });
+  } catch (error) {
+    logError('Error fetching user dashboard:', error, { endpoint: '/api/user/dashboard', userId: req.user?.userId });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch dashboard data'
+    });
   }
 });
 
